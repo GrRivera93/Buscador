@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Buscador OM</title>
+    <link rel="icon" href="https://raw.githubusercontent.com/Juank930/ImagenesRRSS/main/Icono23.png" type="image/png">
+    <link rel="stylesheet" href="..//Documentos redes/Buscador/Style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+</head>
+<body>
+     <h1 style="text-align: center; font-family: Arial, sans-serif;">
+  <span style="color: #fdfdfd;">Reportes y fallas</span> 
+  <span style="color: #43a1e0;">One Marketer</span>
+</h1>
+  <input type="file" id="fileInput" accept=".csv" />
+<br>
+<br>
+  <label>Tipos de fallas OM </label><input type="text" id="search" placeholder="Ingresa #, 13, API" />
+  <label>Fallas BOT o palabras clave </label><input type="text" id="textSearch" placeholder="Ingresa texto o textos aquí" />
+  <label>Búsqueda por Móvil </label><input type="text" id="mobileSearch" placeholder="Ingresa número de móvil" />
+  <button id="searchBtn" onclick="filterTable()">🔍 <b>Buscar</b></button>
+  <button id="resetBtn" onclick="resetSearch()">🔄 <b>Nueva búsqueda</b></button>
+  <button id="chartBtn" onclick="showChart()">📊 Gráfico errores BOT</button>
+  <button id="omErrorChartBtn" onclick="showOMErrorChart()">📈 Gráfico fallas OM</button>
+  <button id="copyBtn" onclick="copyResults()">📋 Copiar resultados</button>
+  <button id="downloadBtn" onclick="downloadExcel()">📥 Descargar Excel</button>
+  <button id="backBtn" onclick="goBack()" style="display:none; background-color: grey; color: white; border: none; cursor: pointer;">Inicio</button>
+
+  <!-- Filtro de fechas para gráficos -->
+  <div id="dateFilterContainer" class="date-filter-container">
+    <label for="startDate">Fecha inicio:</label>
+    <input type="text" id="startDate" class="flatpickr-input" placeholder="Seleccione fecha inicio">
+    
+    <label for="endDate">Fecha fin:</label>
+    <input type="text" id="endDate" class="flatpickr-input" placeholder="Seleccione fecha fin">
+    
+    <button id="applyDateFilter" onclick="applyDateFilter()">Aplicar filtro</button>
+    <button id="resetDateFilter" onclick="resetDateFilter()">Restablecer</button>
+  </div>
+
+    <table id="dataTable" style="display: none;">
+    <thead>
+      <tr>
+        <th>Fecha<br><input class="filter-input" id="filter0" onkeyup="columnFilter(0, this.value)" placeholder="Filtrar" disabled></th>
+        <th>Agente<br><input class="filter-input" id="filter1" onkeyup="columnFilter(1, this.value)" placeholder="Filtrar" disabled></th>
+        <th>Movil<br><input class="filter-input" id="filter2" onkeyup="columnFilter(2, this.value)" placeholder="Filtrar" disabled></th>
+        <th>Remoto<br><input class="filter-input" id="filter3" onkeyup="columnFilter(3, this.value)" placeholder="Filtrar" disabled></th>
+        <th>Event<br><input class="filter-input" id="filter4" onkeyup="columnFilter(4, this.value)" placeholder="Filtrar" disabled></th>
+        <th>Texto<br><input class="filter-input" id="filter5" onkeyup="columnFilter(5, this.value)" placeholder="Filtrar" disabled></th>
+        <th>Hora<br><input class="filter-input" id="filter6" onkeyup="columnFilter(6, this.value)" placeholder="Filtrar" disabled></th>
+        <th>Detalles de error<br><input class="filter-input" id="filter7" onkeyup="columnFilter(7, this.value)" placeholder="Filtrar" disabled></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="chart-container">
+    <canvas id="eventChart"></canvas>
+  </div>
+  <div class="chart-container">
+    <canvas id="omErrorByHourChart"></canvas>
+  </div>
+  
+  <div id="cuadro-flotante">
+    <button id="cerrar">X</button>
+    Puedes buscar fallas OM copiando este texto:<br>
+    <span class="copiable" data-text="#, 13, API">#, 13, API</span><br><br>
+    Busca errores del BOT con:<br>
+    <span class="copiable" data-text="ocurrido un problema">ocurrido un problema</span><br><br>
+  </div>
+
+<!-- Spinner de carga -->
+<div class="overlay" id="loadingOverlay"></div>
+<div class="spinner" id="loadingSpinner"></div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Función para copiar texto
+        function copiarTexto(elemento) {
+            const texto = elemento.getAttribute('data-text') || elemento.textContent;
+            
+            // Intenta usar la API moderna del portapapeles
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(texto)
+                    .then(() => mostrarFeedback(elemento))
+                    .catch(err => {
+                        console.error('Error al copiar:', err);
+                        copiarTextoFallback(texto, elemento);
+                    });
+            } else {
+                // Fallback para navegadores antiguos
+                copiarTextoFallback(texto, elemento);
+            }
+        }
+
+        // Método alternativo para navegadores que no soportan navigator.clipboard
+        function copiarTextoFallback(texto, elemento) {
+            const textarea = document.createElement('textarea');
+            textarea.value = texto;
+            textarea.style.position = 'fixed';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                mostrarFeedback(elemento);
+            } catch (err) {
+                console.error('Error al copiar:', err);
+                alert('No se pudo copiar el texto. Por favor, cópialo manualmente.');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
+        // Muestra feedback visual
+        function mostrarFeedback(elemento) {
+            elemento.classList.add('copiado');
+            setTimeout(() => {
+                elemento.classList.remove('copiado');
+            }, 1000);
+        }
+
+        // Asignar evento de doble clic a todos los elementos copiables
+        document.querySelectorAll('.copiable').forEach(element => {
+            element.addEventListener('dblclick', () => copiarTexto(element));
+        });
+
+        // Opcional: cerrar el cuadro flotante
+        document.getElementById('cerrar').addEventListener('click', function() {
+            document.getElementById('cuadro-flotante').style.display = 'none';
+        });
+    });
+</script>
+  
+  <script>
+    let data = [];
+    let filteredData = [];
+    let availableDates = []; // Almacenará las fechas disponibles en los datos
+    let dateFilterActive = false;
+    let currentStartDate = null;
+    let currentEndDate = null;
+
+    // Función para manejar la tecla Enter
+    function setupEnterKey() {
+      document.getElementById('search').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          filterTable();
+        }
+      });
+      
+      document.getElementById('textSearch').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          filterTable();
+        }
+      });
+      
+      document.getElementById('mobileSearch').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          filterTable();
+        }
+      });
+    }
+
+// Función simplificada para resetear la búsqueda
+function resetSearch() {
+      // Limpiar campos de búsqueda solamente
+      document.getElementById('search').value = '';
+      document.getElementById('textSearch').value = '';
+      document.getElementById('mobileSearch').value = '';
+      
+      // Mostrar tabla principal (sin recargar datos)
+      document.getElementById("dataTable").style.display = "table";
+      
+      // Ocultar gráficos
+      document.getElementById("eventChart").style.display = "none";
+      document.getElementById("omErrorByHourChart").style.display = "none";
+    }
+
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // Mostrar spinner
+      document.getElementById('loadingSpinner').style.display = 'block';
+      document.getElementById('loadingOverlay').style.display = 'block';
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        setTimeout(() => {
+          const contents = e.target.result;
+          const lines = contents.split(/\r?\n/);
+
+          data = lines.map(line => line.split(';')).filter(cols => cols.length >= 6).map(cols => {
+            const fecha = cols[0];
+            const hora = fecha.match(/\b(\d{1,2})\:/) ? fecha.match(/\b(\d{1,2})\:/)[1] : "";
+            return {
+              Fecha: fecha,
+              Agente: cols[1],
+              Movil: cols[2],
+              Remoto: cols[3],
+              Event: cols[4],
+              Texto: cols[5] || "",
+              Hora: hora,
+              DetalleError: generateErrorDetail({
+                Fecha: fecha,
+                Agente: cols[1],
+                Movil: cols[2],
+                Remoto: cols[3],
+                Event: cols[4],
+                Texto: cols[5] || "",
+                Hora: hora
+              }),
+              // Agregamos un campo Date para facilitar el filtrado por fecha
+              FechaDate: parseFechaToDate(fecha)
+            };
+          });
+
+          // Extraer las fechas únicas disponibles
+          extractAvailableDates();
+          
+          filteredData = [];
+          renderTable([]);
+          
+          // Ocultar spinner
+          document.getElementById('loadingSpinner').style.display = 'none';
+          document.getElementById('loadingOverlay').style.display = 'none';
+        }, 100);
+      };
+      reader.readAsText(file, 'ISO-8859-1');
+    });
+
+    // Función para extraer las fechas únicas disponibles en los datos
+    function extractAvailableDates() {
+      const dateSet = new Set();
+      
+      data.forEach(item => {
+        if (item.FechaDate) {
+          // Formateamos la fecha como YYYY-MM-DD para el calendario
+          const dateStr = formatDateForCalendar(item.FechaDate);
+          dateSet.add(dateStr);
+        }
+      });
+      
+      availableDates = Array.from(dateSet).sort();
+      
+      // Configurar flatpickr con las fechas disponibles
+      setupDatePicker();
+    }
+    
+    // Función para configurar el datepicker con las fechas disponibles
+    function setupDatePicker() {
+      flatpickr("#startDate", {
+        locale: "es",
+        dateFormat: "d/m/Y",
+        enable: availableDates,
+        onChange: function(selectedDates, dateStr, instance) {
+          if (selectedDates.length) {
+            const endDatePicker = document.querySelector("#endDate")._flatpickr;
+            endDatePicker.set("minDate", selectedDates[0]);
+          }
+        }
+      });
+      
+      flatpickr("#endDate", {
+        locale: "es",
+        dateFormat: "d/m/Y",
+        enable: availableDates
+      });
+    }
+    
+    // Función para convertir fecha del formato del CSV a objeto Date
+    function parseFechaToDate(fechaStr) {
+      if (!fechaStr) return null;
+      
+      // Extraer día, mes y año del formato "dd/mm/aaaa hh:mm:ss"
+      const datePart = fechaStr.split(' ')[0];
+      const [day, month, year] = datePart.split('/').map(Number);
+      
+      // Crear objeto Date (los meses en JavaScript son 0-indexados)
+      return new Date(year, month - 1, day);
+    }
+    
+    // Función para formatear fecha como YYYY-MM-DD para el calendario
+    function formatDateForCalendar(date) {
+      const d = new Date(date);
+      let month = '' + (d.getMonth() + 1);
+      let day = '' + d.getDate();
+      const year = d.getFullYear();
+
+      if (month.length < 2) 
+          month = '0' + month;
+      if (day.length < 2) 
+          day = '0' + day;
+
+      return [year, month, day].join('-');
+    }
+    
+    // Función para aplicar el filtro de fechas
+    function applyDateFilter() {
+      const startDateStr = document.getElementById('startDate').value;
+      const endDateStr = document.getElementById('endDate').value;
+      
+      if (!startDateStr || !endDateStr) {
+        alert('Por favor seleccione ambas fechas (inicio y fin)');
+        return;
+      }
+      
+      // Convertir las fechas seleccionadas a objetos Date para comparación
+      const [startDay, startMonth, startYear] = startDateStr.split('/').map(Number);
+      const startDate = new Date(startYear, startMonth - 1, startDay);
+      
+      const [endDay, endMonth, endYear] = endDateStr.split('/').map(Number);
+      const endDate = new Date(endYear, endMonth - 1, endDay);
+      
+      // Ajustar la fecha fin para incluir todo el día (hasta las 23:59:59)
+      endDate.setHours(23, 59, 59, 999);
+      
+      // Filtrar los datos
+      const filteredByDate = filteredData.filter(item => {
+        if (!item.FechaDate) return false;
+        
+        const itemDate = new Date(item.FechaDate);
+        return itemDate >= startDate && itemDate <= endDate;
+      });
+      
+      // Actualizar las fechas actuales del filtro
+      currentStartDate = startDate;
+      currentEndDate = endDate;
+      dateFilterActive = true;
+      
+      // Mostrar los gráficos con los datos filtrados
+      if (window.currentChartType === 'event') {
+        showChart(filteredByDate);
+      } else if (window.currentChartType === 'omError') {
+        showOMErrorChart(filteredByDate);
+      }
+    }
+    
+    // Función para restablecer el filtro de fechas
+    function resetDateFilter() {
+      document.getElementById('startDate').value = '';
+      document.getElementById('endDate').value = '';
+      dateFilterActive = false;
+      currentStartDate = null;
+      currentEndDate = null;
+      
+      // Volver a mostrar los gráficos con todos los datos filtrados (sin filtro de fecha)
+      if (window.currentChartType === 'event') {
+        showChart();
+      } else if (window.currentChartType === 'omError') {
+        showOMErrorChart();
+      }
+    }
+
+    function renderTable(dataArray) {
+      const tbody = document.querySelector("#dataTable tbody");
+      tbody.innerHTML = "";
+      dataArray.forEach(row => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${row.Fecha}</td>
+          <td>${row.Agente}</td>
+          <td>${row.Movil}</td>
+          <td>${row.Remoto}</td>
+          <td>${row.Event}</td>
+          <td>${row.Texto}</td>
+          <td>${row.Hora}</td>
+          <td>${row.DetalleError}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      document.getElementById("dataTable").style.display = dataArray.length > 0 ? "table" : "none";
+
+      for (let i = 0; i < 8; i++) {
+        document.getElementById(`filter${i}`).disabled = dataArray.length === 0;
+      }
+    }
+
+    function filterTable() {
+      // Mostrar spinner
+      document.getElementById('loadingSpinner').style.display = 'block';
+      document.getElementById('loadingOverlay').style.display = 'block';
+      
+      const eventInput = document.getElementById("search").value.toLowerCase().trim();
+      const textInput = document.getElementById("textSearch").value.toLowerCase().trim();
+      const mobileInput = document.getElementById("mobileSearch").value.trim();
+
+      const eventKeywords = eventInput.split(/[;,]+/).map(w => w.trim()).filter(Boolean);
+      const textKeywords = textInput.split(/[;,]+/).map(w => w.trim()).filter(Boolean);
+      const mobileKeywords = mobileInput.split(/[;,]+/).map(w => w.trim()).filter(Boolean);
+
+      // Usar setTimeout para permitir que el spinner se muestre antes del procesamiento pesado
+      setTimeout(() => {
+          filteredData = data.filter(row => {
+              const matchEvent = eventKeywords.length === 0 || eventKeywords.some(word => row.Event.toLowerCase().includes(word));
+              const matchText = textKeywords.length === 0 || textKeywords.some(word => row.Texto.toLowerCase().includes(word));
+              const matchMobile = mobileKeywords.length === 0 || mobileKeywords.some(word => row.Movil.includes(word));
+              return matchEvent && matchText && matchMobile;
+          });
+
+          renderTable(filteredData);
+          
+          // Ocultar spinner cuando termine
+          document.getElementById('loadingSpinner').style.display = 'none';
+          document.getElementById('loadingOverlay').style.display = 'none';
+      }, 100);
+    }
+
+    function columnFilter(columnIndex, searchValue) {
+      searchValue = searchValue.toLowerCase();
+      const rows = document.querySelectorAll("#dataTable tbody tr");
+
+      rows.forEach(row => {
+        const cell = row.cells[columnIndex];
+        row.style.display = cell.textContent.toLowerCase().includes(searchValue) ? "" : "none";
+      });
+    }
+
+    function copyResults() {
+      const rows = document.querySelectorAll("#dataTable tbody tr");
+      let text = "";
+
+      rows.forEach(row => {
+        if (row.style.display !== "none") {
+          const cells = row.querySelectorAll("td");
+          const line = Array.from(cells).map(cell => cell.textContent).join("\t");
+          text += line + "\n";
+        }
+      });
+
+      if (!text) {
+        alert("No hay resultados visibles para copiar.");
+        return;
+      }
+
+      navigator.clipboard.writeText(text).then(() => {
+        alert("Resultados visibles copiados al portapapeles.");
+      }).catch(err => {
+        alert("Error al copiar: " + err);
+      });
+    }
+
+    function goBack() {
+      document.getElementById("eventChart").style.display = "none";
+      document.getElementById("omErrorByHourChart").style.display = "none";
+      document.getElementById("dataTable").style.display = "table";
+      document.getElementById("backBtn").style.display = "none";
+      document.getElementById("dateFilterContainer").style.display = "none";
+    }
+
+    function showChart(dataToUse) {
+      // Mostrar spinner
+      document.getElementById('loadingSpinner').style.display = 'block';
+      document.getElementById('loadingOverlay').style.display = 'block';
+      
+      // Determinar qué datos usar (si se pasan datos filtrados por fecha o no)
+      const chartData = dataToUse || filteredData;
+      window.currentChartType = 'event';
+      
+      if (chartData.length === 0) {
+        alert("No hay datos filtrados para mostrar en el gráfico.");
+        // Ocultar spinner si no hay datos
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('loadingOverlay').style.display = 'none';
+        return;
+      }
+
+      // Mostrar el contenedor de filtro de fechas
+      document.getElementById("dateFilterContainer").style.display = "block";
+      
+      setTimeout(() => {
+        const countMap = {};
+        chartData.forEach(row => {
+          const key = `${row.Hora} - ${row.Event}`;
+          countMap[key] = (countMap[key] || 0) + 1;
+        });
+
+        const entries = Object.entries(countMap);
+        entries.sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+
+        const labels = entries.map(entry => entry[0]);
+        const counts = entries.map(entry => entry[1]);
+        const maxCount = Math.max(...counts);
+
+        const colors = counts.map(value => {
+          const intensity = value / maxCount;
+          const r = 255, g = Math.floor(255 * (1 - intensity)), b = Math.floor(255 * (1 - intensity));
+          return `rgb(${r},${g},${b})`;
+        });
+
+        const ctx = document.getElementById("eventChart").getContext("2d");
+        if (window.eventChartInstance) window.eventChartInstance.destroy();
+
+        // Agregar título con rango de fechas si el filtro está activo
+        let chartTitle = "Cantidad de eventos por hora";
+        if (dateFilterActive) {
+          const startStr = currentStartDate.toLocaleDateString('es-ES');
+          const endStr = currentEndDate.toLocaleDateString('es-ES');
+          chartTitle += ` (${startStr} - ${endStr})`;
+        }
+
+        window.eventChartInstance = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: labels,
+            datasets: [{
+              label: chartTitle,
+              data: counts,
+              backgroundColor: "#FFD700", // Amarillo sólido
+              borderColor: "#FFD700",
+              borderWidth: 1
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              datalabels: {
+                color: '#000', // números en negro,
+                anchor: 'center',
+                align: 'center',
+                font: { weight: 'bold' },
+                formatter: Math.round,
+                clip: false
+              },
+              legend: { display: false },
+              tooltip: { enabled: true }
+            },
+            scales: {
+              x: { 
+                title: { display: true, text: "Total por Hora" },
+                ticks: {
+                  autoSkip: false,
+                  maxRotation: 45,
+                  minRotation: 45
+                }
+              },
+              y: {
+                title: { display: true, text: "Cantidad" },
+                beginAtZero: true,
+                ticks: { precision: 0 }
+              }
+            }
+          },
+          plugins: [ChartDataLabels]
+        });
+        ctx.canvas.style.backgroundColor = 'white'; // fondo blanco del canvas
+
+        document.getElementById("eventChart").style.display = "block";
+        document.getElementById("omErrorByHourChart").style.display = "none";
+        document.getElementById("dataTable").style.display = "none";
+        document.getElementById("backBtn").style.display = "inline-block";
+        
+        // Ocultar spinner al final
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('loadingOverlay').style.display = 'none';
+      }, 100);
+    }
+
+    function downloadExcel() {
+      if (filteredData.length === 0) {
+        alert("No hay datos filtrados para exportar.");
+        return;
+      }
+      
+      // Si hay filtro de fechas activo, usamos los datos filtrados por fecha
+      let dataToExport = filteredData;
+      if (dateFilterActive) {
+        dataToExport = filteredData.filter(item => {
+          if (!item.FechaDate) return false;
+          const itemDate = new Date(item.FechaDate);
+          return itemDate >= currentStartDate && itemDate <= currentEndDate;
+        });
+      }
+      
+      const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
+      XLSX.writeFile(workbook, 'resultado_busqueda.xlsx');
+    }
+
+    // Tabla de errores conocidos
+    const knownErrors = [
+  { error: "a131056 - (#131056) (Business Account, Consumer Account) pair rate limit hit - Message failed to send because there were too many messages sent from this phone number to the same phone number in a short period of time.", comentario: "Varios mensajes en corto periodo de tiempo" },
+  { error: "131056 - (#131056) (Business Account, Consumer Account) pair rate limit hit - Message failed to send because there were too many messages sent from this phone number to the same phone number in a short period of time.", comentario: "No recibe mensajes" },
+  { error: "100 - (#100) Invalid parameter - buttons: URL parameter generates an invalid URL: https://www.equifax.com.sv/efx-web-remoto-anywhere-pwa/personal/consentimiento/<redacted-param-value>", comentario: "Error envío Template" },
+  { error: "(#10) This message is sent outside of allowed window. Learn more about the new policy here: https://developers.facebook.com/docs/messenger-platform/policy-overview", comentario: "Política META" },
+  { error: "100 - (#100) Invalid parameter - buttons: URL parameter generates an invalid URL: https://www.equifax.com.sv/efx-web-remoto-anywhere-pwa/personal/consentimiento/", comentario: "No recibe mensajes" },
+  { error: "131053 - (#131053) Media upload error - Downloading media from weblink failed with http code 503, status message Service Unavailable, error is Non-retryable, classified as UserError", comentario: "Error envío Template" },
+  { error: "(#100) The media server does not allow downloading of the media due to robots.txt. If you control the server, consider allowlisting Meta's user agent for the media path.", comentario: "Error envío multimedia" },
+  { error: "(#100) El servidor multimedia no admite la descarga de contenido multimedia debido a un archivo robots.txt. Si controlas el servidor, considera autorizar al agente de usuario de Meta para el recorrido multimedia.", comentario: "Encuesta IG | Comentario público" },
+  { error: "131053 - (#131053) Media upload error - Downloading media from weblink failed with http code 503, status message Service Unavailable", comentario: "Error envío Template" },
+  { error: "131053 - (#131053) Media upload error - Downloading media from weblink failed with http code 404, status message Not Found", comentario: "Error envío Template" },
+  { error: "2 - (#2) Service temporarily unavailable - Server is temporarily unavailable. Please retry after some time.", comentario: "No recibe mensajes" },
+  { error: "131047 : Message failed to send because more than 24 hours have passed since the customer last replied to this number.", comentario: "Error envío Template" },
+  { error: "131050 : Unable to deliver the message. This recipient has chosen to stop receiving marketing messages on WhatsApp from your business", comentario: "Error envío Template" },
+  { error: "200 - API access disrupted. Go to the App Dashboard and complete Data Use Checkup.", comentario: "No recibe mensajes" },
+  { error: "131049 : This message was not delivered to maintain healthy ecosystem engagement. ", comentario: "Error envío Template" },
+  { error: "131000 - (#131000) Something went wrong - Something went wrong", comentario: "No recibe mensajes" },
+  { error: "100 - (#100) Invalid parameter - Param text cannot have new-line/tab characters or more than 4 consecutive spaces", comentario: "Error envío Template" },
+  { error: "131026 : Message undeliverable ", comentario: "Error envío Template" },
+  { error: "131047 : Re-engagement message ", comentario: "Política META" },
+  { error: "130472 : User's number is part of an experiment ", comentario: "Error envío Template" },
+  { error: "131053 : Media upload error ", comentario: "Error envío Sticker o imagen" },
+  { error: "131000 : Something went wrong", comentario: "Error envío Sticker o imagen" },
+  { error: "API access disrupted. Go to the App Dashboard and complete Data Use Checkup.", comentario: "No recibe mensajes" },
+  { error: "(#100) The parameter message[attachment][type] is required", comentario: "Sticker en Messenger" },
+  { error: "(#551) This person isn't available right now.", comentario: "Política META" },
+  { error: "(#10) This message is sent outside of allowed window.", comentario: "Encuesta IG | Comentario público" },
+  { error: "(#100) The action is invalid since it's not the thread owner.", comentario: "Error envío Sticker o imagen" },
+  { error: "(#100) No matching user found", comentario: "No recibe mensajes" },
+  { error: "(#-1) Unexpected internal error", comentario: "No recibe mensajes" },
+  { error: "(#100) Upload attachment failure.", comentario: "No recibe mensajes" },
+  { error: "100 - (#100) Invalid parameter - Parameter Invalid", comentario: "Política META" },
+  { error: "1 - An unknown error occurred", comentario: "Error envío Template" }
+    ];
+
+    // Actualizar función para usar la tabla de errores
+    function generateErrorDetail(row) {
+      const eventText = `${row.Event} ${row.Texto}`.toLowerCase();
+      for (const entry of knownErrors) {
+        if (eventText.includes(entry.error.toLowerCase())) {
+          return entry.comentario;
+        }
+      }
+      return "Sin detalles";
+    }
+
+    function showOMErrorChart(dataToUse) {
+      // Mostrar spinner
+      document.getElementById('loadingSpinner').style.display = 'block';
+      document.getElementById('loadingOverlay').style.display = 'block';
+      
+      // Determinar qué datos usar (si se pasan datos filtrados por fecha o no)
+      const chartData = dataToUse || filteredData;
+      window.currentChartType = 'omError';
+      
+      if (chartData.length === 0) {
+        alert("No hay datos filtrados para mostrar en el gráfico.");
+        // Ocultar spinner si no hay datos
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('loadingOverlay').style.display = 'none';
+        return;
+      }
+
+      // Mostrar el contenedor de filtro de fechas
+      document.getElementById("dateFilterContainer").style.display = "block";
+      
+      setTimeout(() => {
+        // Agregar título con rango de fechas si el filtro está activo
+        let chartTitle1 = "Cantidad por tipo de error";
+        let chartTitle2 = "Detalles de error por hora";
+        
+        if (dateFilterActive) {
+          const startStr = currentStartDate.toLocaleDateString('es-ES');
+          const endStr = currentEndDate.toLocaleDateString('es-ES');
+          const dateRange = ` (${startStr} - ${endStr})`;
+          chartTitle1 += dateRange;
+          chartTitle2 += dateRange;
+        }
+
+        // Primer gráfico: "Cantidad por tipo de error"
+        const countMap = {};
+        chartData.forEach(row => {
+          const detail = row.DetalleError;
+          countMap[detail] = (countMap[detail] || 0) + 1;
+        });
+
+        const labels1 = Object.keys(countMap);
+        const counts1 = Object.values(countMap);
+
+        const ctx1 = document.getElementById("eventChart").getContext("2d");
+        if (window.eventChartInstance) window.eventChartInstance.destroy();
+
+        window.eventChartInstance = new Chart(ctx1, {
+          type: "bar",
+          data: {
+            labels: labels1,
+            datasets: [{
+              label: chartTitle1,
+              data: counts1,
+              backgroundColor: "rgb(255, 215, 0)" // barras amarillas
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              datalabels: {
+                color: '#000', // números en negro,
+                anchor: 'center',
+                align: 'center',
+                font: { weight: 'bold' },
+                formatter: Math.round,
+                clip: false
+              },
+              legend: { display: false },
+              tooltip: { enabled: true }
+            },
+            scales: {
+              x: { 
+                title: { display: true, text: "Tipo de Error" },
+                ticks: {
+                  autoSkip: false,
+                  maxRotation: 45,
+                  minRotation: 45
+                }
+              },
+              y: {
+                title: { display: true, text: "Cantidad" },
+                beginAtZero: true,
+                ticks: { precision: 0 }
+              }
+            }
+          },
+          plugins: [ChartDataLabels]
+        });
+        ctx1.canvas.style.backgroundColor = 'white'; // fondo blanco del canvas
+
+        // Segundo gráfico: "Detalles de error" por hora
+        const detailByHourMap = {};
+        chartData.forEach(row => {
+          const hour = row.Hora;
+          const detail = row.DetalleError;
+          const key = `${hour} - ${detail}`;
+          detailByHourMap[key] = (detailByHourMap[key] || 0) + 1;
+        });
+
+        const entries2 = Object.entries(detailByHourMap);
+        entries2.sort((a, b) => {
+          const [hourA, detailA] = a[0].split(' - ');
+          const [hourB, detailB] = b[0].split(' - ');
+          // Primero compara por hora
+          if (parseInt(hourA) !== parseInt(hourB)) {
+            return parseInt(hourA) - parseInt(hourB);
+          }
+          // Si la hora es la misma, compara por el detalle del error
+          return detailA.localeCompare(detailB);
+        });
+
+        const labels2 = entries2.map(entry => entry[0]);
+        const counts2 = entries2.map(entry => entry[1]);
+
+        const ctx2 = document.getElementById("omErrorByHourChart").getContext("2d");
+        if (window.omErrorByHourChartInstance) window.omErrorByHourChartInstance.destroy();
+
+        window.omErrorByHourChartInstance = new Chart(ctx2, {
+          type: "bar",
+          data: {
+            labels: labels2,
+            datasets: [{
+              label: chartTitle2,
+              data: counts2,
+              backgroundColor: "rgb(128, 200, 255)" // Un color diferente para el segundo gráfico
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              datalabels: {
+                color: '#000',
+                anchor: 'center',
+                align: 'center',
+                font: { weight: 'bold' },
+                formatter: Math.round,
+                clip: false
+              },
+              legend: { display: false },
+              tooltip: { enabled: true }
+            },
+            scales: {
+              x: { 
+                title: { display: true, text: "Hora - Detalles de error" },
+                ticks: {
+                  autoSkip: false,
+                  maxRotation: 45,
+                  minRotation: 45
+                }
+              },
+              y: {
+                title: { display: true, text: "Cantidad" },
+                beginAtZero: true,
+                ticks: { 
+                  precision: 0,
+                  stepSize: 50
+                }
+              }
+            }
+          },
+          plugins: [ChartDataLabels]
+        });
+        ctx2.canvas.style.backgroundColor = 'white'; // fondo blanco del canvas
+
+        document.getElementById("eventChart").style.display = "block";
+        document.getElementById("omErrorByHourChart").style.display = "block"; // Mostrar el segundo gráfico
+        document.getElementById("dataTable").style.display = "none";
+        document.getElementById("backBtn").style.display = "inline-block";
+        
+        // Ocultar spinner al final
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('loadingOverlay').style.display = 'none';
+      }, 100);
+    }
+
+    // Configurar el evento de tecla Enter al cargar la página
+    window.onload = function() {
+      setupEnterKey();
+      
+      // Cierre del cuadro flotante
+      document.getElementById("cerrar").addEventListener("click", function () {
+        document.getElementById("cuadro-flotante").style.display = "none";
+      });
+
+      // Movimiento del cuadro flotante
+      const cuadro = document.getElementById("cuadro-flotante");
+      let isDragging = false;
+      let offsetX, offsetY;
+
+      cuadro.addEventListener("mousedown", function (e) {
+        if (e.target.id === "cerrar") return; // No mover si se hace clic en el botón
+        isDragging = true;
+        offsetX = e.clientX - cuadro.offsetLeft;
+        offsetY = e.clientY - cuadro.offsetTop;
+        cuadro.style.cursor = "grabbing";
+      });
+
+      document.addEventListener("mousemove", function (e) {
+        if (isDragging) {
+          cuadro.style.left = `${e.clientX - offsetX}px`;
+          cuadro.style.top = `${e.clientY - offsetY}px`;
+          cuadro.style.bottom = "auto";
+        }
+      });
+
+      document.addEventListener("mouseup", function () {
+        isDragging = false;
+        cuadro.style.cursor = "move";
+      });
+    };
+  </script>
+  
+  <!-- Botón de ayuda flotante -->
+  <button id="helpBtn" onclick="openManual()">?</button>
+  
+  <!-- Modal del manual (puedes editar este contenido) -->
+  <div id="manualModal">
+      <div id="manualContent">
+          <span id="closeManual" onclick="closeManual()">&times;</span>
+          <h2 style="color: #007bff; text-align: center;">Manual de Uso del Buscador OM</h2>
+          
+          <h3>📌 Cómo usar el buscador</h3>
+          <ol>
+              <li><strong>Cargar archivo CSV:</strong> Selecciona el archivo de logs usando el botón "Seleccionar archivo"</li>
+              <li><strong>Búsqueda básica:</strong>
+                  <ul>
+                      <li>Tipos de fallas OM: Busca por códigos de error (#, 13, API, etc.)</li>
+                      <li>Fallas BOT: Busca por texto (ej. "ocurrido un problema")</li>
+                  </ul>
+              </li>
+              <li><strong>Búsqueda avanzada:</strong> Puedes usar múltiples términos separados por comas o punto y coma</li>
+              <li><strong>Filtros por columna:</strong> Una vez cargados los datos, puedes filtrar en cada columna</li>
+              <li><strong>Filtro por fechas:</strong> Al visualizar gráficos, puedes filtrar por rango de fechas</li>
+          </ol>
+          
+          <h3>🔍 Funciones principales</h3>
+          <div style="background-color: #595b5c; padding: 15px; border-radius: 5px;">
+              <p><strong>🔍 Buscar:</strong> Filtra los resultados según los criterios ingresados</p>
+              <p><strong>🔄 Nueva búsqueda:</strong> Limpia los filtros actuales</p>
+              <p><strong>📊 Gráficos:</strong> Muestra visualizaciones de los errores con filtro por fechas</p>
+              <p><strong>📋 Copiar resultados:</strong> Copia los datos filtrados al portapapeles</p>
+              <p><strong>📥 Descargar Excel:</strong> Exporta los resultados a un archivo XLSX</p>
+          </div>
+          
+          <h3>📋 Ejemplos de búsqueda</h3>
+          <table border="1" style="width: 100%; border-collapse: collapse;">
+              <tr style="background-color: #343a40; color: white;">
+                  <th style="padding: 8px;">Búsqueda</th>
+                  <th style="padding: 8px;">Descripción</th>
+              </tr>
+              <tr>
+                  <td style="padding: 8px;">13, API</td>
+                  <td style="padding: 8px;">Encuentra errores que contengan "13" o "API"</td>
+              </tr>
+              <tr style="background-color: #636568;">
+                  <td style="padding: 8px;">"error de conexión"</td>
+                  <td style="padding: 8px;">Encuentra errores exactos de conexión</td>
+              </tr>
+              <tr>
+                  <td style="padding: 8px;">131000;131056</td>
+                  <td style="padding: 8px;">Encuentra errores con códigos específicos</td>
+              </tr>
+          </table>
+          
+          <h3>❓ Preguntas frecuentes</h3>
+          <div style="margin-bottom: 20px;">
+              <button onclick="toggleFAQ('faq1')" style="background-color: #6c757d; color: white; border: none; padding: 10px; width: 100%; text-align: left; cursor: pointer;">¿Por qué no aparecen resultados?</button>
+              <div id="faq1" style="display: none; padding: 10px; background-color: rgb(100, 98, 98); border: 1px solid #ddd;">
+                  Verifica que:
+                  <ul>
+                      <li>El archivo CSV tenga el formato correcto</li>
+                      <li>Los términos de búsqueda estén bien escritos</li>
+                      <li>Hayas hecho clic en "Buscar" después de ingresar los términos</li>
+                  </ul>
+              </div>
+              
+              <button onclick="toggleFAQ('faq2')" style="background-color: #6c757d; color: white; border: none; padding: 10px; width: 100%; text-align: left; cursor: pointer; margin-top: 5px;">¿Cómo interpretar los códigos de error?</button>
+              <div id="faq2" style="display: none; padding: 10px; background-color: rgb(83, 83, 83); border: 1px solid #ddd;">
+                  Los códigos más comunes son:
+                  <ul>
+                      <li><strong>13XXXX</strong>: Errores relacionados con la API de Meta</li>
+                      <li><strong>#10</strong>: Problemas con ventanas de tiempo</li>
+                      <li><strong>API</strong>: Fallas generales de conexión con la API</li>
+                  </ul>
+              </div>
+              
+              <button onclick="toggleFAQ('faq3')" style="background-color: #6c757d; color: white; border: none; padding: 10px; width: 100%; text-align: left; cursor: pointer; margin-top: 5px;">¿Cómo usar el filtro de fechas?</button>
+              <div id="faq3" style="display: none; padding: 10px; background-color: rgb(83, 83, 83); border: 1px solid #ddd;">
+                  El filtro de fechas:
+                  <ul>
+                      <li>Solo aparece al visualizar gráficos</li>
+                      <li>Permite seleccionar un rango de fechas para filtrar los datos</li>
+                      <li>Muestra solo las fechas disponibles en los datos cargados</li>
+                      <li>Si selecciona la misma fecha en inicio y fin, muestra datos de todo ese día</li>
+                  </ul>
+              </div>
+          </div>
+          
+          <div style="text-align: center; margin-top: 20px; font-style: italic; color: #6c757d;">
+          <p>Última actualización: 15/06/2023</p>
+          </div>
+      </div>
+  </div>
+
+  <script>
+      // [Todos los scripts anteriores se mantienen igual]
+      
+      // Funciones para el manual de ayuda
+      function openManual() {
+          document.getElementById('manualModal').style.display = 'block';
+      }
+      
+      function closeManual() {
+          document.getElementById('manualModal').style.display = 'none';
+      }
+      
+      function toggleFAQ(id) {
+          const element = document.getElementById(id);
+          element.style.display = element.style.display === 'none' ? 'block' : 'none';
+      }
+      
+      // Cerrar el modal si se hace clic fuera del contenido
+      window.onclick = function(event) {
+          const modal = document.getElementById('manualModal');
+          if (event.target === modal) {
+              closeManual();
+          }
+      }
+  </script>
+
+<script>
+    // Función para extraer las fechas únicas disponibles en los datos
+    function extractAvailableDates() {
+      const dateSet = new Set();
+      
+      data.forEach(item => {
+        if (item.Fecha) {
+          // Extraer la parte de la fecha (dd/mm/aaaa) del string completo
+          const datePart = item.Fecha.split(' ')[0];
+          dateSet.add(datePart);
+        }
+      });
+      
+      availableDates = Array.from(dateSet).sort();
+      
+      // Configurar flatpickr con las fechas disponibles
+      setupDatePicker();
+    }
+    
+    // Función para configurar el datepicker con las fechas disponibles
+    function setupDatePicker() {
+      flatpickr("#startDate", {
+        locale: "es",
+        dateFormat: "d/m/Y",
+        enable: availableDates.map(date => {
+          const [day, month, year] = date.split('/');
+          return new Date(year, month - 1, day);
+        }),
+        onChange: function(selectedDates, dateStr, instance) {
+          if (selectedDates.length) {
+            const endDatePicker = document.querySelector("#endDate")._flatpickr;
+            endDatePicker.set("minDate", selectedDates[0]);
+          }
+        }
+      });
+      
+      flatpickr("#endDate", {
+        locale: "es",
+        dateFormat: "d/m/Y",
+        enable: availableDates.map(date => {
+          const [day, month, year] = date.split('/');
+          return new Date(year, month - 1, day);
+        })
+      });
+    }
+</script>
+
+</body>
+</html>
